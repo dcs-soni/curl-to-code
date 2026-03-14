@@ -10,6 +10,8 @@ import {
 } from "@clack/prompts";
 import chalk from "chalk";
 import gradient from "gradient-string";
+import yargs from "yargs/yargs";
+import { hideBin } from "yargs/helpers";
 import { parseCurlOrUrl } from "./utils/curl-parser";
 import { fetchNetworkData } from "./services/network";
 import { generateCode } from "./services/generator";
@@ -28,19 +30,40 @@ async function main() {
 
   console.log(gradient.pastel(welcomeText));
 
-  intro(chalk.bgCyan.black(" THE NETWORK-TO-CODE VISUALIZER "));
+  // Parse command line arguments
+  const argv = await yargs(hideBin(process.argv))
+    .option("url", {
+      alias: "u",
+      type: "string",
+      description: "URL or cURL command to extract data from",
+    })
+    .option("output", {
+      alias: "o",
+      type: "string",
+      description: "Path to write the generated code (e.g., ./src/models.ts)",
+    })
+    .help()
+    .alias("help", "h").argv;
 
-  const input = await text({
-    message: "Enter a URL or cURL command to extract data from:",
-    placeholder: 'curl https://api.example.com/data -H "Bearer token"',
-    validate(value) {
-      if (!value || value.trim().length === 0) return "Input is required";
-    },
-  });
+  let input: string | symbol = argv.url || "";
 
-  if (isCancel(input)) {
-    cancel("Hologram extraction aborted.");
-    process.exit(0);
+  if (!input) {
+    intro(chalk.bgCyan.black(" THE NETWORK-TO-CODE VISUALIZER "));
+
+    input = await text({
+      message: "Enter a URL or cURL command to extract data from:",
+      placeholder: 'curl https://api.example.com/data -H "Bearer token"',
+      validate(value) {
+        if (!value || value.trim().length === 0) return "Input is required";
+      },
+    });
+
+    if (isCancel(input)) {
+      cancel("Hologram extraction aborted.");
+      process.exit(0);
+    }
+  } else {
+    console.log(chalk.cyan(`> Using provided input: ${input}`));
   }
 
   const s = spinner();
@@ -56,6 +79,15 @@ async function main() {
     const generated = generateCode(data);
 
     s.stop(`Extraction complete for ${chalk.green(requestConfig.url)}`);
+
+    if (argv.output) {
+      note(
+        chalk.yellow(
+          `Output feature flag provided: ${argv.output}\nFile writing will be implemented in Phase 1.`,
+        ),
+        "Feature Under Construction",
+      );
+    }
 
     renderResult(data, generated);
 
