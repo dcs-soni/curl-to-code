@@ -2,6 +2,7 @@ import React from "react";
 import { render, Box, Text } from "ink";
 import highlight from "cli-highlight";
 import { GeneratedCode } from "../services/generator.js";
+import { redactSensitiveData } from "../utils/security.js";
 
 interface ResultViewerProps {
   json: any;
@@ -17,7 +18,8 @@ const highlightCode = (code: string, lang: string) => {
 };
 
 const ResultViewer: React.FC<ResultViewerProps> = ({ json, generated }) => {
-  const jsonStr = JSON.stringify(json, null, 2);
+  const redactedJson = redactSensitiveData(json);
+  const jsonStr = JSON.stringify(redactedJson, null, 2);
   // Optional: Cap the JSON string length if it's too massive to avoid terminal lag
   const displayJson =
     jsonStr.length > 2000
@@ -72,6 +74,22 @@ const ResultViewer: React.FC<ResultViewerProps> = ({ json, generated }) => {
           )}
         </Text>
       </Box>
+
+      {generated.fetchClient && (
+        <Box
+          borderStyle="round"
+          borderColor="green"
+          flexDirection="column"
+          paddingX={1}
+        >
+          <Box marginBottom={1}>
+            <Text bold color="green">
+              Generated Fetch Client
+            </Text>
+          </Box>
+          <Text>{highlightCode(generated.fetchClient, "typescript")}</Text>
+        </Box>
+      )}
     </Box>
   );
 };
