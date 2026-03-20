@@ -35,3 +35,4 @@ Thumbs.db
 
 coverage/
 .nyc_output/
+test/generated-models.ts
