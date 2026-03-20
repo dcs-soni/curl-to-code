@@ -1,4 +1,5 @@
 import yargsParser from "yargs-parser";
+import { validateUrl, sanitizeJson } from "./security.js";
 
 export interface RequestConfig {
   url: string;
@@ -7,19 +8,23 @@ export interface RequestConfig {
   body?: any;
 }
 
-export function parseCurlOrUrl(input: string): RequestConfig {
+export function parseCurlOrUrl(input: string, options: { allowPrivate?: boolean } = {}): RequestConfig {
+  if (input.length > 100000) {
+    throw new Error("Input payload exceeds maximum allowed length (100KB).");
+  }
+
   const trimmed = input.trim();
 
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     try {
-      new URL(trimmed);
+      const parsedUrl = validateUrl(trimmed, options.allowPrivate);
       return {
-        url: trimmed,
+        url: parsedUrl.toString(),
         method: "GET",
         headers: {},
       };
-    } catch {
-      throw new Error("Provided input looks like a URL but is invalid.");
+    } catch (error: any) {
+      throw new Error(error.message || "Provided input looks like a URL but is invalid.");
     }
   }
 
@@ -59,6 +64,9 @@ export function parseCurlOrUrl(input: string): RequestConfig {
     if (url.startsWith("'") || url.startsWith('"')) {
       url = url.slice(1, -1);
     }
+    
+    // Will throw if SSRF or invalid
+    const validatedUrl = validateUrl(url, options.allowPrivate);
 
     let method = (parsed.request as string) || "GET";
     const headers: Record<string, string> = {};
@@ -82,7 +90,7 @@ export function parseCurlOrUrl(input: string): RequestConfig {
         method = "POST";
       }
       try {
-        body = JSON.parse(parsed.data as string);
+        body = sanitizeJson(JSON.parse(parsed.data as string));
       } catch {
         // Not JSON, just pass as string
         body = parsed.data;
@@ -90,7 +98,7 @@ export function parseCurlOrUrl(input: string): RequestConfig {
     }
 
     return {
-      url,
+      url: validatedUrl.toString(),
       method: method.toUpperCase(),
       headers,
       body,
