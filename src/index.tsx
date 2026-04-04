@@ -17,12 +17,29 @@ import path from "path";
 import prettier from "prettier";
 import { parseCurlOrUrl } from "./utils/curl-parser.js";
 import { fetchNetworkData } from "./services/network.js";
-import { generateCode } from "./services/generator.js";
+import { generateCode, type ClientType } from "./services/generator.js";
 import { renderResult } from "./ui/ResultViewer.js";
 import {
   validateSafePath,
   sanitizeErrorMessage,
 } from "./utils/security.js";
+
+async function detectClientType(): Promise<ClientType> {
+  try {
+    const pkgPath = path.join(process.cwd(), "package.json");
+    const pkgJson = await fs.readFile(pkgPath, "utf-8");
+    const pkg = JSON.parse(pkgJson);
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+
+    if (deps.axios) return "axios";
+    if (deps.ofetch) return "ofetch";
+    if (deps.ky) return "ky";
+    if (deps.got) return "got";
+  } catch {
+    // Ignore errors (no package.json or invalid json)
+  }
+  return "fetch";
+}
 
 async function main() {
   console.clear();
@@ -61,6 +78,12 @@ async function main() {
       type: "number",
       default: 15,
       description: "Network request timeout in seconds",
+    })
+    .option("client", {
+      alias: "c",
+      choices: ["fetch", "axios", "ky", "got", "ofetch"],
+      type: "string",
+      description: "HTTP client to generate code for (auto-detected if omitted)",
     })
     .help()
     .alias("help", "h")
@@ -102,8 +125,10 @@ async function main() {
       timeoutMs: ((argv.timeout as number) || 15) * 1000,
     });
 
-    s.message("Crystallizing JSON payload into TypeScript and Zod schemas");
-    const generated = generateCode(data, requestConfig);
+    const clientType = (argv.client as ClientType) || (await detectClientType());
+
+    s.message(`Crystallizing JSON payload into TypeScript and Zod schemas (Client: ${clientType})`);
+    const generated = generateCode(data, requestConfig, clientType);
 
     s.stop(`Extraction complete for ${chalk.green(requestConfig.url)}`);
 

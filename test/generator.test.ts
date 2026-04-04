@@ -144,6 +144,37 @@ describe("Generator Service", () => {
       assert.ok(!result.fetchClient.includes("my-secret-api-key"));
       assert.ok(result.fetchClient.includes("application/json"));
     });
+
+    test("generates axios client", () => {
+      const config: RequestConfig = { url: "https://api.example.com", method: "GET", headers: {} };
+      const result = generateCode(sampleResponse, config, "axios");
+      assert.ok(result.fetchClient.includes("import axios from \"axios\""));
+      assert.ok(result.fetchClient.includes("await axios({"));
+      assert.ok(result.fetchClient.includes("url: \"https://api.example.com\""));
+    });
+
+    test("generates ky client", () => {
+      const config: RequestConfig = { url: "https://api.example.com", method: "POST", headers: {}, body: { a: 1 } };
+      const result = generateCode(sampleResponse, config, "ky");
+      assert.ok(result.fetchClient.includes("import ky from \"ky\""));
+      assert.ok(result.fetchClient.includes("await ky(\"https://api.example.com\""));
+      assert.ok(result.fetchClient.includes("json: payload"));
+    });
+
+    test("generates got client", () => {
+      const config: RequestConfig = { url: "https://api.example.com", method: "GET", headers: {} };
+      const result = generateCode(sampleResponse, config, "got");
+      assert.ok(result.fetchClient.includes("import got from \"got\""));
+      assert.ok(result.fetchClient.includes("await got(\"https://api.example.com\""));
+    });
+
+    test("generates ofetch client", () => {
+      const config: RequestConfig = { url: "https://api.example.com", method: "POST", headers: {}, body: { a: 1 } };
+      const result = generateCode(sampleResponse, config, "ofetch");
+      assert.ok(result.fetchClient.includes("import { ofetch } from \"ofetch\""));
+      assert.ok(result.fetchClient.includes("await ofetch(\"https://api.example.com\""));
+      assert.ok(result.fetchClient.includes("body: payload"));
+    });
   });
 
   describe("Edge cases", () => {

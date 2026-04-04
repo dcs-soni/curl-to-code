@@ -3,6 +3,8 @@ import { jsonToZod } from "json-to-zod";
 import type { RequestConfig } from "../utils/curl-parser.js";
 import { redactHeaders } from "../utils/security.js";
 
+export type ClientType = "fetch" | "axios" | "ky" | "got" | "ofetch";
+
 export interface GeneratedCode {
   typeScript: string;
   zod: string;
@@ -12,6 +14,7 @@ export interface GeneratedCode {
 export function generateCode(
   responseJson: any,
   config?: RequestConfig,
+  clientType: ClientType = "fetch",
 ): GeneratedCode {
   const requestJson = config?.body;
   let tsCode = "";
@@ -64,7 +67,59 @@ export function generateCode(
       ? `\n    headers: ${JSON.stringify(safeHeaders, null, 2).replace(/\n/g, "\n    ")},`
       : "";
 
-    fetchClient = `// Fetch API Client
+    switch (clientType) {
+      case "axios":
+        fetchClient = `// Axios API Client
+import axios from "axios";
+
+export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
+  const response = await axios({
+    url: "${config.url}",
+    method: "${config.method}",${headersStr}${hasBody ? `\n    data: payload,` : ""}
+  });
+
+  return ResponseSchema.parse(response.data);
+}`;
+        break;
+      case "ky":
+        fetchClient = `// Ky API Client
+import ky from "ky";
+
+export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
+  const data = await ky("${config.url}", {
+    method: "${config.method}",${headersStr}${hasBody ? `\n    json: payload,` : ""}
+  }).json();
+
+  return ResponseSchema.parse(data);
+}`;
+        break;
+      case "got":
+        fetchClient = `// Got API Client
+import got from "got";
+
+export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
+  const data = await got("${config.url}", {
+    method: "${config.method}",${headersStr}${hasBody ? `\n    json: payload,` : ""}
+  }).json();
+
+  return ResponseSchema.parse(data);
+}`;
+        break;
+      case "ofetch":
+        fetchClient = `// Ofetch API Client
+import { ofetch } from "ofetch";
+
+export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
+  const data = await ofetch("${config.url}", {
+    method: "${config.method}",${headersStr}${hasBody ? `\n    body: payload,` : ""}
+  });
+
+  return ResponseSchema.parse(data);
+}`;
+        break;
+      case "fetch":
+      default:
+        fetchClient = `// Fetch API Client
 export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
   const response = await fetch("${config.url}", {
     method: "${config.method}",${headersStr}${hasBody ? `\n    body: JSON.stringify(payload),` : ""}
@@ -77,6 +132,8 @@ export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promis
   const data = await response.json();
   return ResponseSchema.parse(data);
 }`;
+        break;
+    }
   }
 
   return {
