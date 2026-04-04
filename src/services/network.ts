@@ -1,14 +1,26 @@
 import { RequestConfig } from "../utils/curl-parser.js";
-import { validateUrl } from "../utils/security.js";
+import { validateUrl, sanitizeJson } from "../utils/security.js";
+
+export interface FetchOptions {
+  /** Maximum response size in bytes (default: 10 MB) */
+  maxResponseSize?: number;
+  /** Allow requests to private/local network addresses */
+  allowPrivate?: boolean;
+  /** Request timeout in milliseconds (default: 15000) */
+  timeoutMs?: number;
+}
 
 export async function fetchNetworkData(
   config: RequestConfig,
-  options: { maxResponseSize?: number; allowPrivate?: boolean } = {}
+  options: FetchOptions = {},
 ): Promise<any> {
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const maxResponseSize = options.maxResponseSize ?? 10 * 1024 * 1024; // 10 MB
+
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
-  }, 10000);
+  }, timeoutMs);
 
   try {
     const init: RequestInit = {
@@ -24,33 +36,36 @@ export async function fetchNetworkData(
           : JSON.stringify(config.body);
     }
 
-    const validatedUrl = validateUrl(config.url, options.allowPrivate);
+    const validatedUrl = await validateUrl(config.url, options.allowPrivate);
     const response = await fetch(validatedUrl.toString(), init);
-    const contentType = response.headers.get("content-type");
 
     if (!response.ok) {
       throw new Error(
-        `Failed to fetch: ${response.status} ${response.statusText}`,
+        `Request failed with status ${response.status} (${response.statusText}).`,
       );
     }
+
+    const contentType = response.headers.get("content-type");
 
     if (!contentType || !contentType.includes("application/json")) {
       throw new Error(
-        `Expected JSON response, but got ${contentType || "unknown"}`,
+        `Expected a JSON response (application/json), but received: ${contentType || "unknown"}.`,
       );
     }
 
-    const maxResponseSize = options.maxResponseSize || 10 * 1024 * 1024; // 10MB default
-
+    // ─── Size guard: fast bail via Content-Length header ──────────────
     const contentLength = response.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > maxResponseSize) {
-      throw new Error(`Response size exceeds maximum allowed limit (${maxResponseSize} bytes).`);
+      throw new Error(
+        `Response size (${contentLength} bytes) exceeds the maximum allowed limit of ${maxResponseSize} bytes.`,
+      );
     }
 
     if (!response.body) {
       throw new Error("Response body is empty or not readable.");
     }
 
+    // ─── Streaming body read with size enforcement ───────────────────
     const reader = response.body.getReader();
     let receivedLength = 0;
     const chunks: Uint8Array[] = [];
@@ -62,7 +77,10 @@ export async function fetchNetworkData(
       if (value) {
         receivedLength += value.length;
         if (receivedLength > maxResponseSize) {
-          throw new Error(`Response size exceeds maximum allowed limit (${maxResponseSize} bytes).`);
+          reader.cancel();
+          throw new Error(
+            `Response size exceeds the maximum allowed limit of ${maxResponseSize} bytes.`,
+          );
         }
         chunks.push(value);
       }
@@ -76,11 +94,15 @@ export async function fetchNetworkData(
     }
 
     const text = new TextDecoder("utf-8").decode(chunksAll);
-    const data = JSON.parse(text);
-    return data;
+    const rawData = JSON.parse(text);
+
+    // Sanitize to prevent prototype pollution from malicious API responses
+    return sanitizeJson(rawData);
   } catch (error: any) {
     if (error.name === "AbortError") {
-      throw new Error("Network request timed out after 10 seconds.");
+      throw new Error(
+        `Network request timed out after ${timeoutMs / 1000} seconds.`,
+      );
     }
     throw error;
   } finally {

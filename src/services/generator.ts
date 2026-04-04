@@ -1,6 +1,7 @@
 import JsonToTS from "json-to-ts";
 import { jsonToZod } from "json-to-zod";
 import type { RequestConfig } from "../utils/curl-parser.js";
+import { redactHeaders } from "../utils/security.js";
 
 export interface GeneratedCode {
   typeScript: string;
@@ -8,35 +9,41 @@ export interface GeneratedCode {
   fetchClient: string;
 }
 
-export function generateCode(responseJson: any, config?: RequestConfig): GeneratedCode {
+export function generateCode(
+  responseJson: any,
+  config?: RequestConfig,
+): GeneratedCode {
   const requestJson = config?.body;
   let tsCode = "";
   try {
-    const resInterfaces = JsonToTS(responseJson, { rootName: "ResponsePayload" });
+    const resInterfaces = JsonToTS(responseJson, {
+      rootName: "ResponsePayload",
+    });
     tsCode = "// Response Interfaces\n" + resInterfaces.join("\n\n");
 
-    if (requestJson) {
-      const reqInterfaces = JsonToTS(requestJson, { rootName: "RequestPayload" });
+    if (requestJson && typeof requestJson === "object") {
+      const reqInterfaces = JsonToTS(requestJson, {
+        rootName: "RequestPayload",
+      });
       tsCode += "\n\n// Request Interfaces\n" + reqInterfaces.join("\n\n");
     }
   } catch (error) {
-    tsCode = "// Failed to generate TypeScript interfaces\n// " + String(error);
+    tsCode =
+      "// Failed to generate TypeScript interfaces\n// " + String(error);
   }
 
   let zodCode = "";
   try {
-    // jsonToZod outputs something like `export const schema = z.object(...)` 
-    // or just the zod object string depending on version. 
     let resZod = jsonToZod(responseJson, "ResponseSchema");
     if (!resZod.includes("ResponseSchema")) {
-        resZod = `export const ResponseSchema = ${resZod}`;
+      resZod = `export const ResponseSchema = ${resZod}`;
     }
     zodCode = "// Response Schema\n" + resZod;
 
-    if (requestJson) {
+    if (requestJson && typeof requestJson === "object") {
       let reqZod = jsonToZod(requestJson, "RequestSchema");
       if (!reqZod.includes("RequestSchema")) {
-          reqZod = `export const RequestSchema = ${reqZod}`;
+        reqZod = `export const RequestSchema = ${reqZod}`;
       }
       zodCode += "\n\n// Request Schema\n" + reqZod;
     }
@@ -46,13 +53,17 @@ export function generateCode(responseJson: any, config?: RequestConfig): Generat
 
   let fetchClient = "";
   if (config) {
-    const hasBody = !!requestJson;
+    const hasBody = !!requestJson && typeof requestJson === "object";
     const reqType = hasBody ? "RequestPayload" : "any";
-    
-    const headersStr = Object.keys(config.headers).length 
-      ? `\n    headers: ${JSON.stringify(config.headers, null, 2).replace(/\n/g, "\n    ")},` 
+
+    // Redact sensitive headers (Authorization, Cookie, API keys) so they
+    // are never hardcoded in generated source files.
+    const safeHeaders = redactHeaders(config.headers);
+
+    const headersStr = Object.keys(safeHeaders).length
+      ? `\n    headers: ${JSON.stringify(safeHeaders, null, 2).replace(/\n/g, "\n    ")},`
       : "";
-    
+
     fetchClient = `// Fetch API Client
 export async function fetchData(${hasBody ? `payload: ${reqType}` : ""}): Promise<ResponsePayload> {
   const response = await fetch("${config.url}", {
